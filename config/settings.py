@@ -1,6 +1,8 @@
 import os
+import sys
 from pathlib import Path
 from datetime import timedelta
+from urllib.parse import urlparse, unquote
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -10,8 +12,12 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-saec-cafe-c++-cafe-secret-
 
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 't')
 
-
-ALLOWED_HOSTS = ['*']
+# ALLOWED_HOSTS: Supports comma-separated list or '*'
+raw_allowed_hosts = os.getenv('ALLOWED_HOSTS', '*')
+if raw_allowed_hosts.strip() == '*':
+    ALLOWED_HOSTS = ['*']
+else:
+    ALLOWED_HOSTS = [host.strip() for host in raw_allowed_hosts.split(',') if host.strip()]
 
 # Application definition
 INSTALLED_APPS = [
@@ -44,13 +50,24 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+]
+
+try:
+    import whitenoise  # noqa: F401
+    MIDDLEWARE.append('whitenoise.middleware.WhiteNoiseMiddleware')
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+except ImportError:
+    pass
+
+MIDDLEWARE.extend([
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-]
+])
+
 
 ROOT_URLCONF = 'config.urls'
 
@@ -72,10 +89,37 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# Database Configuration (PostgreSQL / SQLite fallback)
+# Database Configuration (Railway DATABASE_URL / Local PostgreSQL / SQLite fallback)
+database_url = os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL') or os.getenv('POSTGRES_URL')
 USE_POSTGRES = os.getenv('USE_POSTGRES', 'True').lower() in ('true', '1', 't')
 
-if USE_POSTGRES:
+def parse_db_url(url_str: str) -> dict:
+    """Helper to parse a database URL string into Django DATABASES settings."""
+    try:
+        import dj_database_url
+        return dj_database_url.parse(url_str, conn_max_age=600, conn_health_checks=True)
+    except ImportError:
+        # Fallback pure-python parser if dj_database_url is not installed
+        parsed = urlparse(url_str)
+        engine = 'django.db.backends.postgresql'
+        if parsed.scheme in ('sqlite', 'sqlite3'):
+            return {'ENGINE': 'django.db.backends.sqlite3', 'NAME': parsed.path.lstrip('/')}
+        return {
+            'ENGINE': engine,
+            'NAME': unquote(parsed.path.lstrip('/')),
+            'USER': unquote(parsed.username or ''),
+            'PASSWORD': unquote(parsed.password or ''),
+            'HOST': parsed.hostname or '127.0.0.1',
+            'PORT': str(parsed.port or 5432),
+            'CONN_MAX_AGE': 600,
+            'CONN_HEALTH_CHECKS': True,
+        }
+
+if database_url:
+    DATABASES = {
+        'default': parse_db_url(database_url)
+    }
+elif USE_POSTGRES:
     DATABASES = {
         'default': {
             'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
@@ -144,8 +188,34 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# CORS
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS Configuration
+raw_cors = os.getenv('CORS_ALLOWED_ORIGINS', '')
+if raw_cors.strip():
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in raw_cors.split(',') if origin.strip()]
+    CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't')
+else:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+    ]
+    # Allow all origins in DEBUG mode for local development convenience unless overridden
+    CORS_ALLOW_ALL_ORIGINS = DEBUG or (os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't'))
+
 CORS_ALLOW_CREDENTIALS = True
 
+# CSRF Trusted Origins
+raw_csrf = os.getenv('CSRF_TRUSTED_ORIGINS', '')
+if raw_csrf.strip():
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in raw_csrf.split(',') if origin.strip()]
+else:
+    CSRF_TRUSTED_ORIGINS = [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:8000',
+        'http://127.0.0.1:8000',
+    ]
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+

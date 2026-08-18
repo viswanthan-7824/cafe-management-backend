@@ -27,9 +27,15 @@ def create_order(
         raise ValidationError("Order must contain at least one product.")
 
     now = timezone.localtime()
-    is_open, msg, b_day = check_ordering_available(now)
-    if not is_open:
-        raise ValidationError(f"Cannot place order: {msg}")
+    
+    # Enforce 10:00 AM - 3:30 PM window only for Mobile App orders by Students and Faculty
+    if order_source == Order.OrderSource.MOBILE:
+        is_open, msg, b_day = check_ordering_available(now)
+        if not is_open:
+            raise ValidationError(f"Mobile app ordering is restricted: {msg}")
+    else:
+        # Cashier POS Counter billing is allowed anytime
+        b_day = get_current_business_day(now.date())
 
     max_prep_minutes = 0
     overall_order_type = order_type or Order.OrderType.READY_FOOD
