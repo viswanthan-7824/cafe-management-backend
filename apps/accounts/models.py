@@ -33,6 +33,7 @@ class User(AbstractUser):
     mobile_number = models.CharField(max_length=15, unique=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
     is_active = models.BooleanField(default=True)
+    is_demo = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

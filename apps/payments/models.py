@@ -20,6 +20,7 @@ class Payment(models.Model):
     transaction_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(null=True, blank=True)
+    is_demo = models.BooleanField(default=False, db_index=True)
 
     def __str__(self):
         return f"Payment #{self.id} for Order {self.order.order_number} (₹{self.amount}) - [{self.status}]"

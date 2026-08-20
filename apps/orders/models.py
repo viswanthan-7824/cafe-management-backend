@@ -57,6 +57,7 @@ class Order(models.Model):
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     notes = models.TextField(blank=True, null=True)
+    is_demo = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         ordering = ['-created_at']

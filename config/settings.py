@@ -43,7 +43,6 @@ INSTALLED_APPS = [
     'apps.payment_support',
     'apps.contact_orders',
     'apps.analytics',
-    'apps.forecasting',
     'apps.notifications',
 ]
 

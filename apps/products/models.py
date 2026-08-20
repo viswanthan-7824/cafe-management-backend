@@ -47,6 +47,7 @@ class Product(models.Model):
     maximum_stock = models.IntegerField(default=100)
     availability_status = models.CharField(max_length=30, choices=AvailabilityStatus.choices, default=AvailabilityStatus.AVAILABLE)
     is_active = models.BooleanField(default=True)
+    is_demo = models.BooleanField(default=False, db_index=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

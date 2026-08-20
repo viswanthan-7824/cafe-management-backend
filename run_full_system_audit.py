@@ -280,30 +280,44 @@ def run_comprehensive_audit():
         print(f"  [FAIL] Catering request failed: {res_cat_req.status_code} - {res_cat_req.data}")
         results['Contact & Catering Flow'] = 'FAIL'
 
-    # 9. AI DEMAND FORECASTING AUDIT
-    print("\n[9/10] MACHINE LEARNING DEMAND FORECASTING ENGINE")
-    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['ADMIN']}")
-    res_forecast = client.get('/api/forecasting/predict/')
-    if res_forecast.status_code == 200:
-        forecast_items = res_forecast.data.get('forecast', [])
-        print(f"  [PASS] ML Predictive Model generated demand forecast for {len(forecast_items)} products")
-        results['AI Demand Forecasting'] = 'PASS'
+    # 9. POSTGRESQL AUTHORITATIVE ANALYTICS & RBAC AUDIT
+    print("\n[9/10] POSTGRESQL DATA ANALYTICS & RBAC AUDIT")
+    # Verify Student access is rejected
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['STUDENT']}")
+    res_forbidden = client.get('/api/analytics/dashboard/')
+    if res_forbidden.status_code == 403:
+        print("  [PASS] RBAC Enforced: Non-admin (Student) blocked from Analytics (HTTP 403)")
     else:
-        print(f"  [FAIL] Forecast API failed: {res_forecast.status_code}")
-        results['AI Demand Forecasting'] = 'FAIL'
+        print(f"  [FAIL] RBAC Failure: Student got status {res_forbidden.status_code} on analytics")
 
-    # 10. REAL-TIME ANALYTICS AUDIT
-    print("\n[10/10] REAL-TIME EXECUTIVE ANALYTICS & REVENUE")
+    # Admin access with 7 days filter
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['ADMIN']}")
+    res_dash = client.get('/api/analytics/dashboard/?range=7days')
+    if res_dash.status_code == 200:
+        dash_data = res_dash.data
+        print(f"  [PASS] PostgreSQL Analytics Data Loaded:")
+        print(f"         - Total Revenue : Rs. {dash_data['summary']['total_revenue']}")
+        print(f"         - Total Orders  : {dash_data['summary']['total_orders']}")
+        print(f"         - Daily Trends  : {len(dash_data['daily_trends'])} daily data points")
+        print(f"         - Top Products  : {len(dash_data['top_selling_products'])} products ranked")
+        print(f"         - Peak Hours    : {len(dash_data['peak_hours'])} hourly bins")
+        results['PostgreSQL Analytics & RBAC'] = 'PASS'
+    else:
+        print(f"  [FAIL] Analytics Dashboard API failed: {res_dash.status_code}")
+        results['PostgreSQL Analytics & RBAC'] = 'FAIL'
+
+    # 10. REAL-TIME EXECUTIVE OVERVIEW AUDIT
+    print("\n[10/10] REAL-TIME EXECUTIVE OVERVIEW & METRICS")
     res_overview = client.get('/api/analytics/overview/')
     res_sales = client.get('/api/analytics/sales/')
     if res_overview.status_code == 200 and res_sales.status_code == 200:
         today_sales = res_overview.data.get('today_sales')
         today_orders = res_overview.data.get('today_orders')
-        print(f"  [PASS] Live Analytics Engine : Today Revenue=Rs. {today_sales} | Orders Placed={today_orders}")
-        results['Analytics & Reports'] = 'PASS'
+        print(f"  [PASS] Live Overview Engine : Today Revenue=Rs. {today_sales} | Orders Placed={today_orders}")
+        results['Executive Overview & Sales'] = 'PASS'
     else:
-        print(f"  [FAIL] Analytics API failed: Overview={res_overview.status_code}, Sales={res_sales.status_code}")
-        results['Analytics & Reports'] = 'FAIL'
+        print(f"  [FAIL] Overview API failed: Overview={res_overview.status_code}, Sales={res_sales.status_code}")
+        results['Executive Overview & Sales'] = 'FAIL'
 
     print("\n" + "=" * 75)
     print("                 SYSTEM AUDIT VERIFICATION SUMMARY")

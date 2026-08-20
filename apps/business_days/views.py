@@ -2,6 +2,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.utils import timezone
+from apps.accounts.permissions import IsAdminUserRole
 from .models import BusinessDay
 from .serializers import BusinessDaySerializer
 from .services import check_ordering_available, get_current_business_day
@@ -27,7 +28,7 @@ class CurrentBusinessDayStatusView(APIView):
         return Response(response_data)
 
 class AdminBusinessDayCalendarView(generics.ListCreateAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminUserRole]
     queryset = BusinessDay.objects.all().order_by('-date')
     serializer_class = BusinessDaySerializer
 
@@ -35,12 +36,12 @@ class AdminBusinessDayCalendarView(generics.ListCreateAPIView):
         serializer.save(created_by=self.request.user)
 
 class AdminBusinessDayDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminUserRole]
     queryset = BusinessDay.objects.all()
     serializer_class = BusinessDaySerializer
 
 class BulkBusinessDayScheduleView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminUserRole]
 
     def post(self, request):
         dates = request.data.get('dates', [])

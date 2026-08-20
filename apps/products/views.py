@@ -1,24 +1,37 @@
 from rest_framework import generics, permissions, filters
 from rest_framework.response import Response
+from apps.accounts.permissions import IsAdminUserRole, IsCashierOrAdminRole
 from .models import Category, Product
 from .serializers import CategorySerializer, ProductSerializer
 
 class CategoryListCreateView(generics.ListCreateAPIView):
-    permission_classes = [permissions.AllowAny]
     queryset = Category.objects.filter(is_active=True).order_by('name')
     serializer_class = CategorySerializer
 
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [IsAdminUserRole()]
+
 class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [permissions.AllowAny]
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
 
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [IsAdminUserRole()]
+
 class ProductListCreateView(generics.ListCreateAPIView):
-    permission_classes = [permissions.AllowAny]
     serializer_class = ProductSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description', 'sku', 'barcode', 'category__name']
     ordering_fields = ['name', 'price', 'current_stock', 'category']
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [IsCashierOrAdminRole()]
 
     def get_queryset(self):
         queryset = Product.objects.all()
@@ -36,6 +49,11 @@ class ProductListCreateView(generics.ListCreateAPIView):
         return queryset.order_by('name')
 
 class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [permissions.AllowAny]
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [IsCashierOrAdminRole()]
+

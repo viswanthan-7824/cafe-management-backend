@@ -18,6 +18,7 @@ class PaymentSupportTicket(models.Model):
     screenshot = models.ImageField(upload_to='payment_proofs/', blank=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
     admin_notes = models.TextField(blank=True, null=True)
+    is_demo = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -41,16 +42,18 @@ class CustomerIssue(models.Model):
         OPEN = 'OPEN', 'Open'
         IN_PROGRESS = 'IN_PROGRESS', 'In Progress'
         RESOLVED = 'RESOLVED', 'Resolved'
+        REJECTED = 'REJECTED', 'Rejected'
 
     issue_number = models.CharField(max_length=50, unique=True)
     order_code = models.CharField(max_length=50)
-    order = models.ForeignKey(Order, on_delete=models.SET_NULL, null=True, blank=True, related_name='customer_issues')
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='customer_issues')
+    order = models.ForeignKey(Order, on_delete=models.SET_NULL, null=True, blank=True, related_name='issues')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='issues')
     category = models.CharField(max_length=30, choices=Category.choices, default=Category.ORDER_ISSUE)
     description = models.TextField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
     admin_response = models.TextField(blank=True, null=True)
     resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='resolved_issues')
+    is_demo = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

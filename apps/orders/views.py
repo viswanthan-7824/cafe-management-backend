@@ -2,6 +2,9 @@ from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.utils import timezone
+from django.db import models
+
+from apps.accounts.permissions import IsCashierOrAdminRole
 from .models import Order
 from .serializers import OrderSerializer, OrderCreateSerializer
 from .services import create_order, get_fcfs_queue
@@ -11,11 +14,27 @@ class OrderListCreateView(APIView):
 
     def get(self, request):
         user = request.user
+        search_query = request.query_params.get('search')
+        status_filter = request.query_params.get('status')
+        payment_status_filter = request.query_params.get('payment_status')
+
         if user.role in ['ADMIN', 'CASHIER']:
-            orders = Order.objects.all().order_by('-created_at')[:100]
+            queryset = Order.objects.all().order_by('-created_at')
         else:
-            orders = Order.objects.filter(user=user).order_by('-created_at')[:50]
-        serializer = OrderSerializer(orders, many=True)
+            queryset = Order.objects.filter(user=user).order_by('-created_at')
+
+        if search_query:
+            queryset = queryset.filter(
+                models.Q(order_number__icontains=search_query) |
+                models.Q(user__full_name__icontains=search_query) |
+                models.Q(user__email__icontains=search_query)
+            )
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if payment_status_filter:
+            queryset = queryset.filter(payment_status=payment_status_filter)
+
+        serializer = OrderSerializer(queryset[:150], many=True)
         return Response(serializer.data)
 
     def post(self, request):
@@ -45,8 +64,14 @@ class OrderDetailView(generics.RetrieveAPIView):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
 
+    def get_queryset(self):
+        user = self.request.user
+        if user.role in ['ADMIN', 'CASHIER']:
+            return Order.objects.all()
+        return Order.objects.filter(user=user)
+
 class OrderStatusUpdateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCashierOrAdminRole]
 
     def patch(self, request, pk):
         try:

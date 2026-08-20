@@ -17,6 +17,7 @@ class BusinessDay(models.Model):
     notes = models.TextField(blank=True, null=True)
     is_ordering_enabled = models.BooleanField(default=True)
     daily_order_sequence = models.PositiveIntegerField(default=4820)
+    is_demo = models.BooleanField(default=False, db_index=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

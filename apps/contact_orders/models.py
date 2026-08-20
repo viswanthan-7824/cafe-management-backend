@@ -18,6 +18,7 @@ class ContactOrderRequest(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     rejection_reason = models.TextField(blank=True, null=True)
     order = models.OneToOneField(Order, on_delete=models.SET_NULL, null=True, blank=True, related_name='contact_request')
+    is_demo = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

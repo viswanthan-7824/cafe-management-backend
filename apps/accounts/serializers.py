@@ -40,13 +40,16 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         reg_num = validated_data.pop('register_number')
         dept = validated_data.pop('department')
-        yr = validated_data.pop('year')
+        yr = validated_data.pop('year', 1)
         password = validated_data.pop('password')
         
         validated_data['role'] = User.Role.STUDENT
         user = User.objects.create_user(password=password, **validated_data)
         StudentProfile.objects.create(user=user, register_number=reg_num, department=dept, year=yr)
         return user
+
+    def to_representation(self, instance):
+        return UserSerializer(instance).data
 
 class FacultyRegistrationSerializer(serializers.ModelSerializer):
     staff_number = serializers.CharField(max_length=50)
@@ -71,3 +74,24 @@ class FacultyRegistrationSerializer(serializers.ModelSerializer):
         user = User.objects.create_user(password=password, **validated_data)
         FacultyProfile.objects.create(user=user, staff_number=staff_num, department=dept)
         return user
+
+    def to_representation(self, instance):
+        return UserSerializer(instance).data
+
+class CashierRegistrationSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=6)
+
+    class Meta:
+        model = User
+        fields = ['email', 'full_name', 'mobile_number', 'password']
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        validated_data['role'] = User.Role.CASHIER
+        user = User.objects.create_user(password=password, **validated_data)
+        return user
+
+    def to_representation(self, instance):
+        return UserSerializer(instance).data
+
+
