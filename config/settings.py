@@ -194,13 +194,17 @@ if raw_cors.strip():
     CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't')
 else:
     CORS_ALLOWED_ORIGINS = [
+        'https://cafe-management-frontend-kappa.vercel.app',
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'http://localhost:3000',
         'http://127.0.0.1:3000',
     ]
-    # Allow all origins in DEBUG mode for local development convenience unless overridden
-    CORS_ALLOW_ALL_ORIGINS = DEBUG or (os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't'))
+    CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'True').lower() in ('true', '1', 't')
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.vercel\.app$",
+]
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -210,6 +214,9 @@ if raw_csrf.strip():
     CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in raw_csrf.split(',') if origin.strip()]
 else:
     CSRF_TRUSTED_ORIGINS = [
+        'https://cafe-management-frontend-kappa.vercel.app',
+        'https://*.vercel.app',
+        'https://*.railway.app',
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'http://localhost:8000',
