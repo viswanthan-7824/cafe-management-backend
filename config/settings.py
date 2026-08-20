@@ -12,14 +12,18 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-saec-cafe-c++-cafe-secret-
 
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 't')
 
-# ALLOWED_HOSTS: Permissive for Railway & Cloud deployment
-raw_allowed_hosts = os.getenv('ALLOWED_HOSTS', '*')
-if raw_allowed_hosts.strip() == '*':
-    ALLOWED_HOSTS = ['*']
-else:
+# ALLOWED_HOSTS: Strict host validation for Railway production and local dev
+raw_allowed_hosts = os.getenv('ALLOWED_HOSTS', '')
+if raw_allowed_hosts.strip():
     ALLOWED_HOSTS = [host.strip() for host in raw_allowed_hosts.split(',') if host.strip()]
-    if '*' not in ALLOWED_HOSTS:
-        ALLOWED_HOSTS.extend(['.railway.app', '.up.railway.app', 'localhost', '127.0.0.1', 'web-production-85e59.up.railway.app'])
+else:
+    ALLOWED_HOSTS = [
+        'web-production-85e59.up.railway.app',
+        '.railway.app',
+        '.up.railway.app',
+        'localhost',
+        '127.0.0.1',
+    ]
 
 # Application definition
 INSTALLED_APPS = [
@@ -97,6 +101,20 @@ USE_POSTGRES = os.getenv('USE_POSTGRES', 'True').lower() in ('true', '1', 't')
 import re
 import urllib.parse
 
+def sanitize_port(port_val, default=5432) -> int:
+    """Ensure the database port is strictly a valid integer (never a string like 'port')."""
+    if port_val is None:
+        return default
+    port_str = str(port_val).strip().strip('<>')
+    if port_str.isdigit():
+        try:
+            p = int(port_str)
+            if 1 <= p <= 65535:
+                return p
+        except (ValueError, TypeError):
+            pass
+    return default
+
 def parse_db_url(url_str: str) -> dict:
     """Crash-proof helper to parse any database URL string into Django DATABASES settings."""
     if not url_str or not isinstance(url_str, str):
@@ -104,11 +122,28 @@ def parse_db_url(url_str: str) -> dict:
     
     url_clean = url_str.strip().strip("'\"")
     
+    # Check for placeholder string
+    if 'host:port' in url_clean.lower() or '<password>' in url_clean.lower() or '<public_host>' in url_clean.lower():
+        pg_host = os.getenv('PGHOST') or os.getenv('DB_HOST')
+        if pg_host and pg_host not in ('127.0.0.1', 'localhost', 'host', '<PUBLIC_HOST>'):
+            return {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': os.getenv('PGDATABASE') or os.getenv('DB_NAME', 'railway'),
+                'USER': os.getenv('PGUSER') or os.getenv('DB_USER', 'postgres'),
+                'PASSWORD': os.getenv('PGPASSWORD') or os.getenv('DB_PASSWORD', ''),
+                'HOST': pg_host,
+                'PORT': str(sanitize_port(os.getenv('PGPORT') or os.getenv('DB_PORT', 5432))),
+                'CONN_MAX_AGE': 600,
+                'CONN_HEALTH_CHECKS': True,
+            }
+        return {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}
+
     # 1. Try standard dj_database_url
     try:
         import dj_database_url
         res = dj_database_url.parse(url_clean, conn_max_age=600, conn_health_checks=True)
         if res and res.get('ENGINE'):
+            res['PORT'] = str(sanitize_port(res.get('PORT', 5432)))
             return res
     except Exception:
         pass
@@ -132,9 +167,9 @@ def parse_db_url(url_str: str) -> dict:
                     host_port = auth_host
                 
                 if ':' in host_port:
-                    host, port = host_port.split(':', 1)
+                    host, raw_port = host_port.split(':', 1)
                 else:
-                    host, port = host_port, '5432'
+                    host, raw_port = host_port, '5432'
                 
                 return {
                     'ENGINE': 'django.db.backends.postgresql',
@@ -142,7 +177,7 @@ def parse_db_url(url_str: str) -> dict:
                     'USER': unquote(user or 'postgres'),
                     'PASSWORD': unquote(password or ''),
                     'HOST': host or '127.0.0.1',
-                    'PORT': str(port or 5432),
+                    'PORT': str(sanitize_port(raw_port, 5432)),
                     'CONN_MAX_AGE': 600,
                     'CONN_HEALTH_CHECKS': True,
                 }
@@ -161,7 +196,7 @@ def parse_db_url(url_str: str) -> dict:
                 'USER': unquote(parsed.username or 'postgres'),
                 'PASSWORD': unquote(parsed.password or ''),
                 'HOST': parsed.hostname,
-                'PORT': str(parsed.port or 5432),
+                'PORT': str(sanitize_port(parsed.port, 5432)),
                 'CONN_MAX_AGE': 600,
                 'CONN_HEALTH_CHECKS': True,
             }
@@ -178,26 +213,28 @@ if database_url:
     DATABASES = {
         'default': parse_db_url(database_url)
     }
-elif os.getenv('DB_HOST') and os.getenv('DB_HOST') not in ('127.0.0.1', 'localhost'):
+elif os.getenv('PGHOST') or (os.getenv('DB_HOST') and os.getenv('DB_HOST') not in ('127.0.0.1', 'localhost')):
     DATABASES = {
         'default': {
             'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
-            'NAME': os.getenv('DB_NAME', 'saec_cafe'),
-            'USER': os.getenv('DB_USER', 'postgres'),
-            'PASSWORD': os.getenv('DB_PASSWORD', 'postgres'),
-            'HOST': os.getenv('DB_HOST'),
-            'PORT': os.getenv('DB_PORT', '5432'),
+            'NAME': os.getenv('PGDATABASE') or os.getenv('DB_NAME', 'saec_cafe'),
+            'USER': os.getenv('PGUSER') or os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('PGPASSWORD') or os.getenv('DB_PASSWORD', 'postgres'),
+            'HOST': os.getenv('PGHOST') or os.getenv('DB_HOST'),
+            'PORT': str(sanitize_port(os.getenv('PGPORT') or os.getenv('DB_PORT', 5432))),
+            'CONN_MAX_AGE': 600,
+            'CONN_HEALTH_CHECKS': True,
         }
     }
-elif USE_POSTGRES and os.getenv('DB_HOST') == '127.0.0.1':
+elif USE_POSTGRES:
     DATABASES = {
         'default': {
             'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
             'NAME': os.getenv('DB_NAME', 'saec_cafe'),
             'USER': os.getenv('DB_USER', 'postgres'),
             'PASSWORD': os.getenv('DB_PASSWORD', 'postgres'),
-            'HOST': '127.0.0.1',
-            'PORT': os.getenv('DB_PORT', '5432'),
+            'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+            'PORT': str(sanitize_port(os.getenv('DB_PORT', 5432))),
         }
     }
 else:
