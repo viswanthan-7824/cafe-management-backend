@@ -94,27 +94,85 @@ WSGI_APPLICATION = 'config.wsgi.application'
 database_url = os.getenv('DATABASE_URL') or os.getenv('DATABASE_PUBLIC_URL') or os.getenv('POSTGRES_URL')
 USE_POSTGRES = os.getenv('USE_POSTGRES', 'True').lower() in ('true', '1', 't')
 
+import re
+import urllib.parse
+
 def parse_db_url(url_str: str) -> dict:
-    """Helper to parse a database URL string into Django DATABASES settings."""
+    """Crash-proof helper to parse any database URL string into Django DATABASES settings."""
+    if not url_str or not isinstance(url_str, str):
+        return {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}
+    
+    url_clean = url_str.strip().strip("'\"")
+    
+    # 1. Try standard dj_database_url
     try:
         import dj_database_url
-        return dj_database_url.parse(url_str, conn_max_age=600, conn_health_checks=True)
-    except ImportError:
-        # Fallback pure-python parser if dj_database_url is not installed
-        parsed = urlparse(url_str)
-        engine = 'django.db.backends.postgresql'
+        res = dj_database_url.parse(url_clean, conn_max_age=600, conn_health_checks=True)
+        if res and res.get('ENGINE'):
+            return res
+    except Exception:
+        pass
+
+    # 2. Resilient manual parser for URLs with unquoted special characters
+    try:
+        m = re.match(r'^(?:postgres|postgresql|sqlite|sqlite3)://(.*)$', url_clean)
+        if m:
+            rest = m.group(1)
+            if '/' in rest:
+                auth_host, dbname = rest.rsplit('/', 1)
+                dbname = dbname.split('?')[0]
+                if '@' in auth_host:
+                    auth_part, host_port = auth_host.rsplit('@', 1)
+                    if ':' in auth_part:
+                        user, password = auth_part.split(':', 1)
+                    else:
+                        user, password = auth_part, ''
+                else:
+                    user, password = '', ''
+                    host_port = auth_host
+                
+                if ':' in host_port:
+                    host, port = host_port.split(':', 1)
+                else:
+                    host, port = host_port, '5432'
+                
+                return {
+                    'ENGINE': 'django.db.backends.postgresql',
+                    'NAME': unquote(dbname) if dbname else 'railway',
+                    'USER': unquote(user or 'postgres'),
+                    'PASSWORD': unquote(password or ''),
+                    'HOST': host or '127.0.0.1',
+                    'PORT': str(port or 5432),
+                    'CONN_MAX_AGE': 600,
+                    'CONN_HEALTH_CHECKS': True,
+                }
+    except Exception:
+        pass
+
+    # 3. Fallback to standard urlparse
+    try:
+        parsed = urlparse(url_clean)
         if parsed.scheme in ('sqlite', 'sqlite3'):
-            return {'ENGINE': 'django.db.backends.sqlite3', 'NAME': parsed.path.lstrip('/')}
-        return {
-            'ENGINE': engine,
-            'NAME': unquote(parsed.path.lstrip('/')),
-            'USER': unquote(parsed.username or ''),
-            'PASSWORD': unquote(parsed.password or ''),
-            'HOST': parsed.hostname or '127.0.0.1',
-            'PORT': str(parsed.port or 5432),
-            'CONN_MAX_AGE': 600,
-            'CONN_HEALTH_CHECKS': True,
-        }
+            return {'ENGINE': 'django.db.backends.sqlite3', 'NAME': parsed.path.lstrip('/') or (BASE_DIR / 'db.sqlite3')}
+        if parsed.hostname:
+            return {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': unquote(parsed.path.lstrip('/')).split('?')[0] or 'railway',
+                'USER': unquote(parsed.username or 'postgres'),
+                'PASSWORD': unquote(parsed.password or ''),
+                'HOST': parsed.hostname,
+                'PORT': str(parsed.port or 5432),
+                'CONN_MAX_AGE': 600,
+                'CONN_HEALTH_CHECKS': True,
+            }
+    except Exception:
+        pass
+
+    # 4. Safe SQLite Fallback
+    return {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 
 if database_url:
     DATABASES = {
