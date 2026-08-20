@@ -213,7 +213,7 @@ else:
         'http://localhost:3000',
         'http://127.0.0.1:3000',
     ]
-    CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'True').lower() in ('true', '1', 't')
+    CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't')
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.vercel\.app$",
@@ -228,8 +228,10 @@ if raw_csrf.strip():
 else:
     CSRF_TRUSTED_ORIGINS = [
         'https://cafe-management-frontend-kappa.vercel.app',
+        'https://web-production-85e59.up.railway.app',
         'https://*.vercel.app',
         'https://*.railway.app',
+        'https://*.up.railway.app',
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'http://localhost:8000',
@@ -237,4 +239,53 @@ else:
     ]
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Safe Production Logging (No secrets or credentials exposed)
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[%(asctime)s] %(levelname)s [%(name)s:%(lineno)s] %(message)s',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'simple': {
+            'format': '%(levelname)s %(message)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+            'stream': sys.stdout,
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'apps': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
 
