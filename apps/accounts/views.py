@@ -15,11 +15,77 @@ from .serializers import (
 
 User = get_user_model()
 
+from rest_framework import serializers
+from .models import StudentProfile, FacultyProfile
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.username_field in self.fields:
+            self.fields[self.username_field].required = False
+        self.fields['username'] = serializers.CharField(required=False, allow_blank=True)
+        self.fields['email'] = serializers.CharField(required=False, allow_blank=True)
+
     def validate(self, attrs):
-        data = super().validate(attrs)
-        data['user'] = UserSerializer(self.user).data
-        return data
+        login_identifier = attrs.get('email') or attrs.get('username') or attrs.get('login') or self.initial_data.get('email') or self.initial_data.get('username')
+        password = attrs.get('password') or self.initial_data.get('password')
+
+        if not login_identifier:
+            raise serializers.ValidationError({"detail": "Please provide an Email or User ID."})
+        if not password:
+            raise serializers.ValidationError({"detail": "Please provide a Password."})
+
+        login_str = str(login_identifier).strip()
+
+        # Look up user across multiple institutional identifiers
+        user = None
+
+        # 1. Exact or case-insensitive email match
+        user = User.objects.filter(email__iexact=login_str).first()
+
+        # 2. Username match
+        if not user:
+            user = User.objects.filter(username__iexact=login_str).first()
+
+        # 3. Mobile number match
+        if not user:
+            user = User.objects.filter(mobile_number=login_str).first()
+
+        # 4. Student register number
+        if not user:
+            sp = StudentProfile.objects.filter(register_number__iexact=login_str).first()
+            if sp:
+                user = sp.user
+
+        # 5. Faculty staff number
+        if not user:
+            fp = FacultyProfile.objects.filter(staff_number__iexact=login_str).first()
+            if fp:
+                user = fp.user
+
+        # Fallback keyword match for quick testing (e.g., typing just 'admin' or 'cashier')
+        if not user:
+            if login_str.lower() in ('admin', 'administrator'):
+                user = User.objects.filter(role=User.Role.ADMIN, is_active=True).first()
+            elif login_str.lower() in ('cashier', 'pos'):
+                user = User.objects.filter(role=User.Role.CASHIER, is_active=True).first()
+
+        if not user:
+            raise serializers.ValidationError({"detail": f"No account found matching '{login_str}'."})
+
+        if not user.check_password(password):
+            raise serializers.ValidationError({"detail": "Invalid password. Please check your credentials."})
+
+        if not user.is_active:
+            raise serializers.ValidationError({"detail": "This account has been deactivated. Please contact the administrator."})
+
+        self.user = user
+        refresh = self.get_token(user)
+        return {
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+            "user": UserSerializer(user).data
+        }
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
