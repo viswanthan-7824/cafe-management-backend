@@ -23,7 +23,12 @@ else:
         '.up.railway.app',
         'localhost',
         '127.0.0.1',
+        '*',
     ]
+
+# Reverse Proxy headers for Railway / Cloudflare / Vercel
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
 
 # Application definition
 INSTALLED_APPS = [
@@ -299,7 +304,7 @@ SIMPLE_JWT = {
 raw_cors = os.getenv('CORS_ALLOWED_ORIGINS', '')
 if raw_cors.strip():
     CORS_ALLOWED_ORIGINS = [origin.strip() for origin in raw_cors.split(',') if origin.strip()]
-    CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't')
+    CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'True').lower() in ('true', '1', 't')
 else:
     CORS_ALLOWED_ORIGINS = [
         'https://cafe-management-frontend-kappa.vercel.app',
@@ -308,7 +313,7 @@ else:
         'http://localhost:3000',
         'http://127.0.0.1:3000',
     ]
-    CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() in ('true', '1', 't')
+    CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.vercel\.app$",
