@@ -12,12 +12,14 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-saec-cafe-c++-cafe-secret-
 
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 't')
 
-# ALLOWED_HOSTS: Supports comma-separated list or '*'
+# ALLOWED_HOSTS: Permissive for Railway & Cloud deployment
 raw_allowed_hosts = os.getenv('ALLOWED_HOSTS', '*')
 if raw_allowed_hosts.strip() == '*':
     ALLOWED_HOSTS = ['*']
 else:
     ALLOWED_HOSTS = [host.strip() for host in raw_allowed_hosts.split(',') if host.strip()]
+    if '*' not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.extend(['.railway.app', '.up.railway.app', 'localhost', '127.0.0.1', 'web-production-85e59.up.railway.app'])
 
 # Application definition
 INSTALLED_APPS = [
@@ -118,14 +120,25 @@ if database_url:
     DATABASES = {
         'default': parse_db_url(database_url)
     }
-elif USE_POSTGRES:
+elif os.getenv('DB_HOST') and os.getenv('DB_HOST') not in ('127.0.0.1', 'localhost'):
     DATABASES = {
         'default': {
             'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
             'NAME': os.getenv('DB_NAME', 'saec_cafe'),
             'USER': os.getenv('DB_USER', 'postgres'),
             'PASSWORD': os.getenv('DB_PASSWORD', 'postgres'),
-            'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+            'HOST': os.getenv('DB_HOST'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+        }
+    }
+elif USE_POSTGRES and os.getenv('DB_HOST') == '127.0.0.1':
+    DATABASES = {
+        'default': {
+            'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
+            'NAME': os.getenv('DB_NAME', 'saec_cafe'),
+            'USER': os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('DB_PASSWORD', 'postgres'),
+            'HOST': '127.0.0.1',
             'PORT': os.getenv('DB_PORT', '5432'),
         }
     }
