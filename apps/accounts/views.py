@@ -1,22 +1,29 @@
-from rest_framework import generics, status, permissions
+import random
+import string
+from django.utils import timezone
+from rest_framework import generics, status, permissions, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from django.db import models
+
+from .models import StudentProfile, FacultyProfile, PasswordResetToken
 from .permissions import IsAdminUserRole
 from .serializers import (
     UserSerializer,
     StudentRegistrationSerializer,
     FacultyRegistrationSerializer,
-    CashierRegistrationSerializer
+    CashierRegistrationSerializer,
+    ChangePasswordSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
+    UserActivateSerializer,
+    UserRejectSerializer
 )
 
 User = get_user_model()
-
-from rest_framework import serializers
-from .models import StudentProfile, FacultyProfile
 
 DEFAULT_ACCOUNTS = {
     'admin@saec.ac.in': {'passwords': ['admin123', 'admin@123', 'Admin@123', 'password123'], 'role': User.Role.ADMIN, 'name': 'Dr. K. Arul (Canteen Director / Admin)', 'phone': '9876543213', 'staff': True, 'superuser': True},
@@ -44,9 +51,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         password = attrs.get('password') or self.initial_data.get('password')
 
         if not login_identifier:
-            raise serializers.ValidationError({"detail": "Please provide an Email or User ID."})
+            raise serializers.ValidationError({"detail": "Please enter your email address.", "code": "REQUIRED_EMAIL"})
         if not password:
-            raise serializers.ValidationError({"detail": "Please provide a Password."})
+            raise serializers.ValidationError({"detail": "Please enter your password.", "code": "REQUIRED_PASSWORD"})
 
         login_str = str(login_identifier).strip()
         pass_str = str(password).strip()
@@ -77,7 +84,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             if fp:
                 user = fp.user
 
-        # 6. Fallback keyword lookup (e.g. typing just 'admin' or 'cashier')
+        # 6. Fallback keyword lookup
         if not user:
             if login_str.lower() in ('admin', 'administrator'):
                 user = User.objects.filter(role=User.Role.ADMIN, is_active=True).first()
@@ -98,6 +105,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                             'full_name': acct_spec['name'],
                             'mobile_number': acct_spec['phone'],
                             'role': acct_spec['role'],
+                            'status': User.Status.ACTIVE,
                             'is_staff': acct_spec.get('staff', False),
                             'is_superuser': acct_spec.get('superuser', False),
                             'is_active': True,
@@ -106,16 +114,40 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                 # Ensure password is hash-synced to match
                 user.set_password(pass_str)
                 user.is_active = True
+                user.status = User.Status.ACTIVE
                 user.save()
 
         if not user:
-            raise serializers.ValidationError({"detail": f"No account found matching '{login_str}'."})
+            raise serializers.ValidationError({
+                "detail": "Incorrect email or password. Please try again.",
+                "code": "INVALID_CREDENTIALS"
+            })
 
         if not user.check_password(pass_str):
-            raise serializers.ValidationError({"detail": "Invalid password. Please check your credentials."})
+            raise serializers.ValidationError({
+                "detail": "Incorrect email or password. Please try again.",
+                "code": "INVALID_CREDENTIALS"
+            })
 
-        if not user.is_active:
-            raise serializers.ValidationError({"detail": "This account has been deactivated. Please contact the administrator."})
+        # Check Account Status State Machine
+        if user.status == User.Status.PENDING:
+            raise serializers.ValidationError({
+                "detail": "Your account is waiting for administrator approval.",
+                "code": "ACCOUNT_PENDING"
+            })
+
+        if user.status == User.Status.REJECTED:
+            raise serializers.ValidationError({
+                "detail": "Your account has not been approved.",
+                "code": "ACCOUNT_REJECTED",
+                "rejection_reason": user.rejection_reason
+            })
+
+        if user.status == User.Status.INACTIVE or not user.is_active:
+            raise serializers.ValidationError({
+                "detail": "Your account is currently inactive. Please contact the administrator.",
+                "code": "ACCOUNT_INACTIVE"
+            })
 
         self.user = user
         refresh = self.get_token(user)
@@ -147,24 +179,111 @@ class UserProfileView(APIView):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
 
+class UserStatsView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def get(self, request):
+        total = User.objects.count()
+        pending = User.objects.filter(status=User.Status.PENDING).count()
+        active = User.objects.filter(status=User.Status.ACTIVE, is_active=True).count()
+        inactive = User.objects.filter(models.Q(status=User.Status.INACTIVE) | models.Q(is_active=False)).exclude(status=User.Status.REJECTED).count()
+        rejected = User.objects.filter(status=User.Status.REJECTED).count()
+
+        return Response({
+            "total_users": total,
+            "pending_users": pending,
+            "active_users": active,
+            "inactive_users": inactive,
+            "rejected_users": rejected
+        })
+
 class UserManagementListView(APIView):
     permission_classes = [IsAdminUserRole]
 
     def get(self, request):
         role_filter = request.query_params.get('role')
+        status_filter = request.query_params.get('status')
         search_query = request.query_params.get('search')
         
         queryset = User.objects.all().order_by('-created_at')
-        if role_filter:
-            queryset = queryset.filter(role=role_filter)
+        
+        if role_filter and role_filter.upper() != 'ALL':
+            queryset = queryset.filter(role=role_filter.upper())
+            
+        if status_filter and status_filter.upper() != 'ALL':
+            queryset = queryset.filter(status=status_filter.upper())
+
         if search_query:
+            q = search_query.strip()
             queryset = queryset.filter(
-                models.Q(email__icontains=search_query) |
-                models.Q(full_name__icontains=search_query) |
-                models.Q(mobile_number__icontains=search_query)
-            )
-        serializer = UserSerializer(queryset[:200], many=True)
+                models.Q(email__icontains=q) |
+                models.Q(full_name__icontains=q) |
+                models.Q(mobile_number__icontains=q) |
+                models.Q(student_profile__register_number__icontains=q) |
+                models.Q(faculty_profile__staff_number__icontains=q)
+            ).distinct()
+
+        serializer = UserSerializer(queryset[:300], many=True)
         return Response(serializer.data)
+
+class UserActivateView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def post(self, request, pk):
+        try:
+            target_user = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = UserActivateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        temp_pwd = serializer.validated_data.get('temporary_password', '').strip()
+        if not temp_pwd:
+            # Generate a clean, secure temporary password (e.g. SaecCafe@8392)
+            digits = ''.join(random.choices(string.digits, k=4))
+            temp_pwd = f"SaecCafe@{digits}"
+
+        target_user.set_password(temp_pwd)
+        target_user.status = User.Status.ACTIVE
+        target_user.is_active = True
+        target_user.must_change_password = True
+        target_user.activated_at = timezone.now()
+        target_user.activated_by = request.user
+        target_user.rejection_reason = ''
+        target_user.save()
+
+        return Response({
+            "message": "Account activated successfully.",
+            "temporary_password": temp_pwd,
+            "user": UserSerializer(target_user).data
+        })
+
+class UserRejectView(APIView):
+    permission_classes = [IsAdminUserRole]
+
+    def post(self, request, pk):
+        try:
+            target_user = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if target_user.id == request.user.id:
+            return Response({"detail": "Cannot reject your own account."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = UserRejectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data.get('reason', '').strip()
+
+        target_user.status = User.Status.REJECTED
+        target_user.is_active = False
+        target_user.rejection_reason = reason
+        target_user.save()
+
+        return Response({
+            "message": "Account rejected.",
+            "user": UserSerializer(target_user).data
+        })
 
 class UserToggleStatusView(APIView):
     permission_classes = [IsAdminUserRole]
@@ -173,12 +292,86 @@ class UserToggleStatusView(APIView):
         try:
             target_user = User.objects.get(pk=pk)
         except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
         
         if target_user.id == request.user.id:
-            return Response({"error": "Cannot deactivate your own administrator account"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Cannot deactivate your own administrator account."}, status=status.HTTP_400_BAD_REQUEST)
         
-        target_user.is_active = not target_user.is_active
+        if target_user.is_active and target_user.status == User.Status.ACTIVE:
+            target_user.is_active = False
+            target_user.status = User.Status.INACTIVE
+        else:
+            target_user.is_active = True
+            target_user.status = User.Status.ACTIVE
+
         target_user.save()
         return Response(UserSerializer(target_user).data)
 
+class ChangePasswordView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        current_pass = serializer.validated_data['current_password']
+        new_pass = serializer.validated_data['new_password']
+
+        if not request.user.check_password(current_pass):
+            return Response(
+                {"current_password": ["Current password is incorrect."]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        request.user.set_password(new_pass)
+        request.user.must_change_password = False
+        request.user.save()
+
+        return Response({"message": "Your password has been updated successfully."})
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data['email'].strip().lower()
+        user = User.objects.filter(email__iexact=email).first()
+
+        token_str = None
+        if user and user.status == User.Status.ACTIVE:
+            reset_token = PasswordResetToken.create_for_user(user)
+            token_str = reset_token.token
+
+        return Response({
+            "message": "If an account exists for this email, a password reset link has been sent.",
+            "reset_token": token_str  # returned for client integration / simulation
+        })
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        token_str = serializer.validated_data['token'].strip()
+        new_password = serializer.validated_data['new_password']
+
+        reset_token = PasswordResetToken.objects.filter(token=token_str, is_used=False).first()
+        if not reset_token or not reset_token.is_valid:
+            return Response(
+                {"detail": "Invalid or expired password reset token. Please request a new one."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = reset_token.user
+        user.set_password(new_password)
+        user.must_change_password = False
+        user.save()
+
+        reset_token.is_used = True
+        reset_token.save()
+
+        return Response({"message": "Password reset successfully. You can now log in with your new password."})
